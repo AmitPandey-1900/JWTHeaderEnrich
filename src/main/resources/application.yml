@@ -1,1 +1,14 @@
+# src/main/resources/application.yml
+spring:
+  redis:
+    host: localhost
+    port: 6379
+  cache:
+    type: redis
+
+client:
+  ids:
+    user1: client1
+    user2: client2
+    # Add more user-client mappings as needed
 
