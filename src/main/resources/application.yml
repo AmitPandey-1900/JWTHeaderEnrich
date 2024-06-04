@@ -6,9 +6,7 @@ spring:
   cache:
     type: redis
 
-client:
-  ids:
-    user1: client1
-    user2: client2
-    # Add more user-client mappings as needed
-
+# Include the external configuration file for client ID-user mappings
+spring:
+  config:
+    import: client-mappings.yml
