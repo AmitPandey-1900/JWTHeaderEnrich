@@ -19,9 +19,12 @@ public class JwtService {
 
     @Cacheable(value = "jwtToken")
     public String getJwtToken() {
+        // Make external service call to get the JWT token
         RestTemplate restTemplate = new RestTemplate();
         String jwtToken = restTemplate.getForObject("https://external-service.com/auth/token", String.class);
-        redisTemplate.opsForValue().set("jwtToken", jwtToken, Duration.ofMinutes(50));
+        
+        // Store JWT token in Redis with expiry
+        redisTemplate.opsForValue().set("jwtToken", jwtToken, Duration.ofMinutes(50)); // Adjust expiry as needed
         return jwtToken;
     }
 
