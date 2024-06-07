@@ -1,0 +1,38 @@
+@startuml
+
+skinparam class {
+  BackgroundColor LightYellow
+  BorderColor Gray
+}
+
+class EnrichmentController {
+    - TFServiceProxy tfServiceProxy
+    - ClientIdMapper clientIdMapper
+    + handleRequestA(userId: String, requestObject: RequestObject): ResponseEntity<ResponseObject>
+    + ...other endpoints...
+}
+
+class TFServiceProxy {
+    - RestTemplate restTemplate
+    + callTfServiceA(clientId: String, userId: String, jwtToken: String, requestObject: RequestObject): ResponseObject
+}
+
+class ClientIdMapper {
+    - Environment environment
+    + getClientId(userId: String): String
+}
+
+class RequestObject {
+    // ... properties of the incoming request object ...
+}
+
+class ResponseObject {
+    // ... properties of the response object ...
+}
+
+EnrichmentController ..> TFServiceProxy : uses
+EnrichmentController ..> ClientIdMapper : uses
+TFServiceProxy ..> RestTemplate : uses
+ClientIdMapper ..> Environment : uses
+
+@enduml
