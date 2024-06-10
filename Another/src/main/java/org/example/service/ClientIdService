@@ -1,12 +1,14 @@
 package org.example.service; // Adjust package if needed
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+@ConfigurationProperties(prefix = "clientusermapping")
 @Service
 public class ClientIdService {
 
@@ -20,7 +22,11 @@ public class ClientIdService {
     }
 
     private String loadClientIdFromEnvironment(String userId) {
-        // This method is called ONLY if the clientId isn't found in the cache
-        return env.getProperty("clientId." + userId);
+        String clientId = env.getProperty(userId);
+        if (clientId == null) {
+            // Throw the IllegalArgumentException when client ID is not found
+            throw new IllegalArgumentException("Client ID not found for user: " + userId);
+        }
+        return clientId;
     }
 }
