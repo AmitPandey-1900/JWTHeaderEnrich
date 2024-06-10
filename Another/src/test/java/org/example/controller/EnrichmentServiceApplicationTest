@@ -1,0 +1,54 @@
+package org.example.controller;
+
+import org.example.service.ClientIdService;
+import org.example.service.JWTTokenService;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration;
+import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.web.client.RestTemplate;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+@WebMvcTest(value = EnrichmentServiceApplication.class, excludeAutoConfiguration = SecurityAutoConfiguration.class)
+public class EnrichmentServiceApplicationTest {
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @MockBean
+    private JWTTokenService jwtTokenService;
+
+    @MockBean
+    private ClientIdService clientIdService;
+
+    @MockBean
+    private RestTemplate restTemplate; // Mock external dependency
+    @Value("${jwt.token.url}")
+    private String jwtTokenUrl;
+    @Test
+    public void testWildcardMapping() throws Exception {
+        // Mock service responses
+        when(jwtTokenService.getJwtToken()).thenReturn(jwtTokenUrl);
+        when(clientIdService.getClientId(anyString())).thenReturn("mockClientId");
+        when(restTemplate.exchange(anyString(), any(), any(), any(Class.class)))
+                .thenReturn(ResponseEntity.ok("Mock TradeFeeder response"));
+
+        // Perform the request with a sample path
+        mockMvc.perform(post("/tradefeedr/orders/create") // Example path
+                        .header("userId", "testUser")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"order\": \"data\"}"))
+                .andExpect(status().isOk());
+    }
+}
