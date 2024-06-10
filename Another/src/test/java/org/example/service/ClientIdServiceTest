@@ -1,0 +1,29 @@
+package org.example.service;
+
+import org.example.service.ClientIdService;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.TestPropertySource;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+
+@SpringBootTest
+@TestPropertySource(locations = "classpath:/clientusermapping.properties")
+class ClientIdServiceTest {
+
+    @Autowired
+    private ClientIdService clientIdService;
+
+    @Test
+    void testGetClientId_Found() {
+        String clientId = clientIdService.getClientId("abc@refinitiv.com");
+        assertEquals("client123", clientId);
+    }
+
+    @Test
+    void testGetClientId_NotFound() {
+        assertThrows(IllegalArgumentException.class, () -> clientIdService.getClientId("invalid@email.com"));
+    }
+}
