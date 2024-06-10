@@ -1,0 +1,9 @@
+# application.yml
+jwt:
+  secret: your-super-secret-jwt-key
+  token:
+    url: https://tardefeedr.tokenservice.com/token
+    expirationTime: 3600  # In seconds
+tradefeedr:
+  base-url: https://api.tradefeedr.com/
+
