@@ -1,0 +1,56 @@
+package org.example.service;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.ResponseEntity;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
+
+@Service
+public class JWTTokenService {
+
+    private final String jwtTokenUrl;
+    private final RestTemplate restTemplate;
+    private final long tokenExpirationTimeMillis;
+
+    private volatile String cachedToken;
+    private volatile long lastTokenFetchTimeMillis;
+
+    public JWTTokenService(RestTemplate restTemplate,
+                           @Value("${jwt.token.url}") String jwtTokenUrl,
+                           @Value("${jwt.token.expirationTime}") Long tokenExpirationTimeSeconds) {
+        this.restTemplate = restTemplate;
+        this.jwtTokenUrl = jwtTokenUrl;
+        this.tokenExpirationTimeMillis = tokenExpirationTimeSeconds * 1000L; // Convert seconds to milliseconds
+    }
+
+    public String getJwtToken() {
+        long currentTimeMillis = System.currentTimeMillis();
+        // Check if cached token is valid and not expired
+        if (cachedToken != null && (currentTimeMillis - lastTokenFetchTimeMillis) < tokenExpirationTimeMillis) {
+            return cachedToken;
+        }
+
+        // Fetch new token and update cache (synchronized for thread-safety)
+        synchronized (this) {
+            if (cachedToken == null || (currentTimeMillis - lastTokenFetchTimeMillis) >= tokenExpirationTimeMillis) {
+                cachedToken = fetchTokenFromUrl();
+                lastTokenFetchTimeMillis = currentTimeMillis;
+            }
+            return cachedToken;
+        }
+    }
+
+    private String fetchTokenFromUrl() {
+        ResponseEntity<String> response = restTemplate.exchange(
+                jwtTokenUrl, HttpMethod.GET, new HttpEntity<>(new HttpHeaders()), String.class);
+
+        if (response.getStatusCode().is2xxSuccessful()) {
+            return response.getBody(); // Ensure that you return the JWT from the response body
+        } else {
+            throw new RuntimeException("Failed to fetch JWT token: " + response.getStatusCodeValue());
+        }
+    }
+}
