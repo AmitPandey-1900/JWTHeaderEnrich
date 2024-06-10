@@ -1,5 +1,8 @@
 package org.example.service;
 
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.ExpiredJwtException;
+import io.jsonwebtoken.Jwts;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -8,35 +11,50 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
+import java.io.*;
+import java.time.Instant;
+import java.util.Date;
+
 @Service
 public class JWTTokenService {
 
     private final String jwtTokenUrl;
     private final RestTemplate restTemplate;
     private final long tokenExpirationTimeMillis;
+    private final String tokenFilePath;
+    private final String jwtSecret; // Injected JWT secret
 
     private volatile String cachedToken;
     private volatile long lastTokenFetchTimeMillis;
 
     public JWTTokenService(RestTemplate restTemplate,
                            @Value("${jwt.token.url}") String jwtTokenUrl,
-                           @Value("${jwt.token.expirationTime}") Long tokenExpirationTimeSeconds) {
+                           @Value("${jwt.token.expirationTime}") Long tokenExpirationTimeSeconds,
+                           @Value("${jwt.token.file.path}") String tokenFilePath,
+                           @Value("${jwt.secret}") String jwtSecret) { // Inject the secret
         this.restTemplate = restTemplate;
         this.jwtTokenUrl = jwtTokenUrl;
-        this.tokenExpirationTimeMillis = tokenExpirationTimeSeconds * 1000L; // Convert seconds to milliseconds
+        this.tokenExpirationTimeMillis = tokenExpirationTimeSeconds * 1000L;
+        this.tokenFilePath = tokenFilePath;
+        this.jwtSecret = jwtSecret;
     }
 
     public String getJwtToken() {
         long currentTimeMillis = System.currentTimeMillis();
-        // Check if cached token is valid and not expired
+
         if (cachedToken != null && (currentTimeMillis - lastTokenFetchTimeMillis) < tokenExpirationTimeMillis) {
             return cachedToken;
         }
 
-        // Fetch new token and update cache (synchronized for thread-safety)
         synchronized (this) {
             if (cachedToken == null || (currentTimeMillis - lastTokenFetchTimeMillis) >= tokenExpirationTimeMillis) {
-                cachedToken = fetchTokenFromUrl();
+                cachedToken = readTokenFromFile();
+
+                if (cachedToken == null || isTokenExpired(cachedToken)) {
+                    cachedToken = fetchTokenFromUrl();
+                    writeTokenToFile(cachedToken);
+                }
+
                 lastTokenFetchTimeMillis = currentTimeMillis;
             }
             return cachedToken;
@@ -48,9 +66,44 @@ public class JWTTokenService {
                 jwtTokenUrl, HttpMethod.GET, new HttpEntity<>(new HttpHeaders()), String.class);
 
         if (response.getStatusCode().is2xxSuccessful()) {
-            return response.getBody(); // Ensure that you return the JWT from the response body
+            return response.getBody();
         } else {
             throw new RuntimeException("Failed to fetch JWT token: " + response.getStatusCodeValue());
+        }
+    }
+
+    private String readTokenFromFile() {
+        try (BufferedReader reader = new BufferedReader(new FileReader(tokenFilePath))) {
+            return reader.readLine();
+        } catch (IOException e) {
+            // Handle file read error (e.g., log and return null)
+            return null;
+        }
+    }
+
+    private void writeTokenToFile(String token) {
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(tokenFilePath))) {
+            writer.write(token);
+        } catch (IOException e) {
+            // Handle file write error (e.g., log and throw exception)
+        }
+    }
+
+    private boolean isTokenExpired(String token) {
+        try {
+            Claims claims = Jwts.parserBuilder()
+                   // .setSigningKey(jwtSecret)
+                    .build()
+                    .parseClaimsJws(token)
+                    .getBody();
+
+            Date expiration = claims.getExpiration();
+            return expiration.before(Date.from(Instant.now()));
+        } catch (ExpiredJwtException e) {
+            return true;
+        } catch (Exception e) {
+            // Handle other exceptions (log and potentially re-fetch)
+            return true;
         }
     }
 }
