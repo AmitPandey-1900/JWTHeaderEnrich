@@ -43,5 +43,21 @@ Configures the application to load the ConfigMap as environment variables and se
   Bootstrap YAML (bootstrap.yml):
 Configures Spring Cloud Kubernetes to reload configuration properties.
 ##########3
+
+Explanation:
+##Gradle Build File (build.gradle):
+Configures the Spring Boot project with necessary dependencies.
+##Bootstrap YAML (bootstrap.yml):
+Configures Spring Cloud Kubernetes to reload configuration properties.
+##Application YAML (application.yml):
+Defines the clientusermapping.file.path property with a default value that can be overridden by the environment variable CLIENT_USER_MAPPING_FILE_PATH.
+##ClientIdService Class:
+Reads properties from the ConfigMap and caches them.
+The properties file path is injected from the configuration.
+##Kubernetes ConfigMap:
+Defines the properties to be loaded.
+##Kubernetes Deployment:
+Configures the application to load the ConfigMap as environment variables and sets the CLIENT_USER_MAPPING_FILE_PATH environment variable.
+By following these steps, you can ensure that the properties file path is configurable and can be overridden, providing flexibility and ease of management.
   
   
