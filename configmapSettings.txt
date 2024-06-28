@@ -1,0 +1,47 @@
+ #Kubernetes ConfigMap YAML (clientusermapping-config.yaml)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: clientusermapping-config
+data:
+  application.properties: |
+    clientusermapping.user1=client1
+    clientusermapping.user2=client2
+    # Add more entries as needed
+
+ #Kubernetes Deployment YAML (deployment.yaml) 
+  apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: client-id-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: client-id-service
+  template:
+    metadata:
+      labels:
+        app: client-id-service
+    spec:
+      containers:
+        - name: client-id-service
+          image: your-docker-image
+          envFrom:
+            - configMapRef:
+                name: clientusermapping-config
+          env:
+            - name: CLIENT_USER_MAPPING_FILE_PATH
+              value: "/mnt/azure/clientusermapping.properties"
+
+#######
+  Kubernetes ConfigMap:
+Defines the properties to be loaded.
+Kubernetes Deployment:
+Configures the application to load the ConfigMap as environment variables and sets the CLIENT_USER_MAPPING_FILE_PATH environment variable.
+###########3
+  Bootstrap YAML (bootstrap.yml):
+Configures Spring Cloud Kubernetes to reload configuration properties.
+##########3
+  
+  
