@@ -1,32 +1,44 @@
-package org.example.service; // Adjust package if needed
+package org.example.service;
 
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.core.env.Environment;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import javax.annotation.PostConstruct;
+import java.io.FileInputStream;
+import java.io.IOException;
 import java.util.Map;
+import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
 
-@ConfigurationProperties(prefix = "clientusermapping")
 @Service
 public class ClientIdService {
 
-    @Autowired
-    private Environment env;
+    @Value("${clientusermapping.file.path}")
+    private String propertiesFilePath;
 
     private final Map<String, String> clientIdCache = new ConcurrentHashMap<>();
+    private Properties properties = new Properties();
 
-    public String getClientId(String userId) {
-        return clientIdCache.computeIfAbsent(userId, this::loadClientIdFromEnvironment);
+    @PostConstruct
+    public void init() throws IOException {
+        loadProperties();
     }
 
-    private String loadClientIdFromEnvironment(String userId) {
-        String clientId = env.getProperty(userId);
+    public String getClientId(String userId) {
+        return clientIdCache.computeIfAbsent(userId, this::loadClientIdFromProperties);
+    }
+
+    private String loadClientIdFromProperties(String userId) {
+        String clientId = properties.getProperty(userId);
         if (clientId == null) {
-            // Throw the IllegalArgumentException when client ID is not found
             throw new IllegalArgumentException("Client ID not found for user: " + userId);
         }
         return clientId;
+    }
+
+    private void loadProperties() throws IOException {
+        try (FileInputStream input = new FileInputStream(propertiesFilePath)) {
+            properties.load(input);
+        }
     }
 }
