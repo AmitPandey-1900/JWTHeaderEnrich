@@ -1,0 +1,19 @@
+# application.yml
+jwt:
+  secret: your-super-secret-jwt-key
+  token:
+    url: https://tardefeedr.tokenservice.com/token
+    expirationTime: 3600
+    file:
+        path: /path/to/tokenFile.txt
+tradefeedr:
+  base-url: https://api.tradefeedr.com/
+
+clientusermapping:
+  file:
+    path: ${CLIENT_USER_MAPPING_FILE_PATH:/mnt/azure/clientusermapping.properties}
+spring:
+  application:
+    name: client-id-service
+  config:
+    import: "configserver:/"
