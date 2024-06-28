@@ -1,0 +1,8 @@
+spring:
+  cloud:
+    kubernetes:
+      reload:
+        enabled: true
+        mode: event
+        monitoring-config-maps: true
+        monitoring-secrets: false
