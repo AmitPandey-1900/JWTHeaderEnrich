@@ -1,11 +1,9 @@
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
-import org.springframework.security.oauth2.client.OAuth2AuthorizedClient;
-import org.springframework.security.oauth2.client.OAuth2AuthorizedClientManager;
-import org.springframework.security.oauth2.client.registration.ClientRegistration;
-import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
-import org.springframework.security.oauth2.core.OAuth2AccessToken;
+import org.springframework.security.oauth2.client.*;
+import org.springframework.security.oauth2.client.registration.*;
+import org.springframework.security.oauth2.client.web.OAuth2AuthorizedClientRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
@@ -53,7 +51,7 @@ public class JWTTokenService {
     }
 
     private String fetchTokenFromOAuth2() {
-        String clientRegistrationId = "your-client-name"; // Replace with your client registration id
+        String clientRegistrationId = "auth0"; // Replace with your client registration id
         ClientRegistration clientRegistration = clientRegistrationRepository.findByRegistrationId(clientRegistrationId);
 
         if (clientRegistration == null) {
@@ -61,8 +59,9 @@ public class JWTTokenService {
         }
 
         OAuth2AuthorizedClient authorizedClient = authorizedClientManager.authorize(
-                OAuth2AuthorizedClientRequest.withClientRegistrationId(clientRegistrationId)
-                        .principal(clientRegistration.getClientId())
+                OAuth2AuthorizedClientRequest.builder(clientRegistration, Collections.emptyList())
+                        .clientId("your-client-id") // Replace with your Auth0 client ID
+                        .clientSecret("your-client-secret") // Replace with your Auth0 client secret
                         .build());
 
         if (authorizedClient != null) {
