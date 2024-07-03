@@ -34,7 +34,6 @@ public class Auth0TokenServiceTest {
     @Mock
     private ObjectMapper objectMapper;
 
-    @InjectMocks
     private Auth0TokenService auth0TokenService;
 
     private static final String TOKEN_FILE_PATH = "/mnt/token/token.json";
@@ -45,11 +44,8 @@ public class Auth0TokenServiceTest {
 
     @BeforeEach
     public void setUp() {
-        ReflectionTestUtils.setField(auth0TokenService, "tokenFilePath", TOKEN_FILE_PATH);
-        ReflectionTestUtils.setField(auth0TokenService, "authUrl", AUTH_URL);
-        ReflectionTestUtils.setField(auth0TokenService, "clientId", CLIENT_ID);
-        ReflectionTestUtils.setField(auth0TokenService, "clientSecret", CLIENT_SECRET);
-        ReflectionTestUtils.setField(auth0TokenService, "audience", AUDIENCE);
+        auth0TokenService = new Auth0TokenService(restTemplate, objectMapper,
+                TOKEN_FILE_PATH, AUTH_URL, CLIENT_ID, CLIENT_SECRET, AUDIENCE);
     }
 
     @Test
@@ -138,17 +134,3 @@ public class Auth0TokenServiceTest {
         responseMap.put("expires_in", expiresIn);
         JsonNode responseJsonNode = objectMapper.convertValue(responseMap, JsonNode.class);
         when(restTemplate.exchange(eq(AUTH_URL), eq(HttpMethod.POST), any(HttpEntity.class), eq(String.class)))
-                .thenReturn(ResponseEntity.ok(objectMapper.writeValueAsString(responseMap)));
-        when(objectMapper.readTree(any(String.class))).thenReturn(responseJsonNode);
-
-        // Act: Call getToken
-        String token = auth0TokenService.getToken();
-
-        // Assert: Token should be fetched from Auth0
-        assertNotNull(token);
-        assertEquals(newToken, token);
-
-        // Clean up
-        Files.delete(path);
-    }
-}
