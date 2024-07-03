@@ -3,7 +3,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.security.oauth2.client.*;
 import org.springframework.security.oauth2.client.registration.*;
-import org.springframework.security.oauth2.client.web.OAuth2AuthorizedClientRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
@@ -58,11 +57,13 @@ public class JWTTokenService {
             throw new IllegalArgumentException("Invalid client registration id: " + clientRegistrationId);
         }
 
-        OAuth2AuthorizedClient authorizedClient = authorizedClientManager.authorize(
-                OAuth2AuthorizedClientRequest.builder(clientRegistration, Collections.emptyList())
-                        .clientId("your-client-id") // Replace with your Auth0 client ID
-                        .clientSecret("your-client-secret") // Replace with your Auth0 client secret
-                        .build());
+        OAuth2AuthorizedClientRequest clientRequest = OAuth2AuthorizedClientRequest
+                .withClientRegistrationId(clientRegistrationId)
+                .principal("your-client-id") // Replace with your client ID
+                .clientCredentials()
+                .build();
+
+        OAuth2AuthorizedClient authorizedClient = authorizedClientManager.authorize(clientRequest);
 
         if (authorizedClient != null) {
             OAuth2AccessToken accessToken = authorizedClient.getAccessToken();
