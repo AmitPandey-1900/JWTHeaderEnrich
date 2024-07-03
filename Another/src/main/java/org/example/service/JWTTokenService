@@ -1,20 +1,30 @@
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClient;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClientManager;
-import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
+import org.springframework.security.oauth2.client.registration.ClientRegistration;
+import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
+import org.springframework.security.oauth2.core.OAuth2AccessToken;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
 import java.io.BufferedWriter;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.util.Base64;
+import java.util.Collections;
 
 @Service
 public class JWTTokenService {
 
     private final RestTemplate restTemplate;
     private final OAuth2AuthorizedClientManager authorizedClientManager;
+    private final ClientRegistrationRepository clientRegistrationRepository;
     private final String tokenFilePath;
 
     private volatile String cachedToken;
@@ -23,9 +33,11 @@ public class JWTTokenService {
     @Autowired
     public JWTTokenService(RestTemplate restTemplate,
                            OAuth2AuthorizedClientManager authorizedClientManager,
+                           ClientRegistrationRepository clientRegistrationRepository,
                            @Value("${jwt.token.file.path}") String tokenFilePath) {
         this.restTemplate = restTemplate;
         this.authorizedClientManager = authorizedClientManager;
+        this.clientRegistrationRepository = clientRegistrationRepository;
         this.tokenFilePath = tokenFilePath;
     }
 
@@ -47,17 +59,24 @@ public class JWTTokenService {
     }
 
     private String fetchTokenFromOAuth2() {
-        OAuth2AuthenticationToken authentication = ...; // Obtain authentication token from Spring Security context
-        OAuth2AuthorizedClient client = authorizedClientManager.authorize(
-                OAuth2AuthorizedClientRequest.withClientRegistrationId("your-client-name")
-                        .principal(authentication.getName())
-                        .build());
+        OAuth2AuthorizedClient client = getAuthorizedClient();
 
         if (client != null && client.getAccessToken() != null) {
             return client.getAccessToken().getTokenValue();
         } else {
             throw new RuntimeException("Failed to fetch JWT token from OAuth2 provider");
         }
+    }
+
+    private OAuth2AuthorizedClient getAuthorizedClient() {
+        String clientRegistrationId = "your-client-name"; // Replace with your client registration id
+        String principalName = SecurityContextHolder.getContext().getAuthentication().getName();
+        ClientRegistration clientRegistration = clientRegistrationRepository.findByRegistrationId(clientRegistrationId);
+        
+        return authorizedClientManager.authorize(
+                OAuth2AuthorizeRequest.withClientRegistrationId(clientRegistrationId)
+                        .principal(principalName)
+                        .build());
     }
 
     private void writeTokenToFile(String token) {
