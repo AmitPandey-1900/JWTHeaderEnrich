@@ -134,3 +134,17 @@ public class Auth0TokenServiceTest {
         responseMap.put("expires_in", expiresIn);
         JsonNode responseJsonNode = objectMapper.convertValue(responseMap, JsonNode.class);
         when(restTemplate.exchange(eq(AUTH_URL), eq(HttpMethod.POST), any(HttpEntity.class), eq(String.class)))
+                .thenReturn(ResponseEntity.ok(objectMapper.writeValueAsString(responseMap)));
+        when(objectMapper.readTree(any(String.class))).thenReturn(responseJsonNode);
+
+        // Act: Call getToken
+        String token = auth0TokenService.getToken();
+
+        // Assert: Token should be fetched from Auth0
+        assertNotNull(token);
+        assertEquals(newToken, token);
+
+        // Clean up
+        Files.delete(path);
+    }
+}
