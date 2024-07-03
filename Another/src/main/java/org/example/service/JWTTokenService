@@ -3,10 +3,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClient;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClientManager;
-import org.springframework.security.oauth2.client.annotation.RegisteredOAuth2AuthorizedClient;
 import org.springframework.security.oauth2.client.registration.ClientRegistration;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
-import org.springframework.security.oauth2.client.web.OAuth2AuthorizedClientRepository;
 import org.springframework.security.oauth2.core.OAuth2AccessToken;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
@@ -56,9 +54,15 @@ public class JWTTokenService {
 
     private String fetchTokenFromOAuth2() {
         String clientRegistrationId = "your-client-name"; // Replace with your client registration id
+        ClientRegistration clientRegistration = clientRegistrationRepository.findByRegistrationId(clientRegistrationId);
+
+        if (clientRegistration == null) {
+            throw new IllegalArgumentException("Invalid client registration id: " + clientRegistrationId);
+        }
+
         OAuth2AuthorizedClient authorizedClient = authorizedClientManager.authorize(
-                OAuth2AuthorizeRequest.withClientRegistrationId(clientRegistrationId)
-                        .principal("user") // Replace with actual principal (username, user ID, etc.)
+                OAuth2AuthorizedClientRequest.withClientRegistrationId(clientRegistrationId)
+                        .principal(clientRegistration.getClientId())
                         .build());
 
         if (authorizedClient != null) {
