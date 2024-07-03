@@ -5,19 +5,18 @@ import java.util.concurrent.TimeUnit;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ResourceLoader;
 import org.springframework.security.oauth2.client.OAuth2ClientContext;
-import org.springframework.security.oauth2.client.resource.ClientCredentialsResourceDetails;
-import org.springframework.security.oauth2.client.token.DefaultTokenProvider;
 import org.springframework.security.oauth2.common.DefaultOAuth2AccessToken;
-import org.springframework.security.oauth2.common.request.DefaultRequestFactory;
-import org.springframework.security.oauth2.provider.token.TokenProvider;
+import org.springframework.security.oauth2.common.exceptions.InvalidTokenException;
+import org.springframework.security.oauth2.common.util.AccessTokenPayload;
+import org.springframework.security.oauth2.provider.token.ResourceVerifier;
+import org.springframework.security.oauth2.provider.token.TokenVerifier;
 import org.springframework.stereotype.Service;
 import org.springframework.util.FileCopyUtils;
 import org.springframework.util.ResourceUtils;
 
-import com.fasterxml.jackson.databind.ObjectMapper; // Optional for parsing expiration claim (if needed)
+import com.fasterxml.jackson.databind.ObjectMapper; // Optional for parsing expiration claim
 
 @Service
-@PropertySource("classpath:auth0-client.properties") // Replace with your property source name
 public class JWTTokenService {
 
     @Autowired
@@ -29,25 +28,23 @@ public class JWTTokenService {
     @Value("${spring.security.oauth2.client.registration.auth0.client-id}")
     private String clientId;
 
-    @Value("${spring.security.oauth2.client.registration.auth0.client-secret}")
-    private String clientSecret;
-
     @Value("${data.file.path}") // Path to write token to disk
     private String tokenFilePath;
 
+    @Value("${jwt.token.expiration.buffer}") // Buffer before expiry (seconds)
+    private Long expirationBufferSeconds;
+
     private volatile String cachedToken;
     private volatile long lastTokenFetchTimeMillis;
-    private final long tokenExpirationBufferMillis;
-
-    public JWTTokenService(@Value("${jwt.token.expiration.buffer}") Long expirationBufferSeconds) {
-        this.tokenExpirationBufferMillis = TimeUnit.SECONDS.toMillis(expirationBufferSeconds);
-    }
 
     public synchronized String getUnexpiredToken() throws IOException {
         long currentTimeMillis = System.currentTimeMillis();
 
-        if (cachedToken != null && (currentTimeMillis - lastTokenFetchTimeMillis) < tokenExpirationBufferMillis) {
-            return cachedToken;
+        if (cachedToken != null && (currentTimeMillis - lastTokenFetchTimeMillis) < TimeUnit.SECONDS.toMillis(expirationBufferSeconds)) {
+            // Check token validity before returning from cache
+            if (isValidToken(cachedToken)) {
+                return cachedToken;
+            }
         }
 
         fetchAndStoreToken();
@@ -55,29 +52,32 @@ public class JWTTokenService {
     }
 
     private void fetchAndStoreToken() throws IOException {
-        ClientCredentialsResourceDetails resourceDetails = new ClientCredentialsResourceDetails();
-        resourceDetails.setId("auth0"); // Adjust if your client registration ID is different
-        resourceDetails.setClientId(clientId);
-        resourceDetails.setClientSecret(clientSecret);
-        resourceDetails.setGrantType("client_credentials");
-        resourceDetails.setAccessTokenUri("https://YOUR_AUTH0_TENANT_URL"); // Replace with your actual URL
+        AuthorizedClientServiceOAuth2AccessToken accessToken = oauth2ClientContext.getAccessToken();
+        if (accessToken == null) {
+            throw new RuntimeException("No access token available from OAuth2 client context");
+        }
 
-        TokenProvider<DefaultOAuth2AccessToken> tokenProvider = new DefaultTokenProvider<DefaultOAuth2AccessToken>();
-        DefaultOAuth2AccessToken token = tokenProvider.obtainAccessToken(resourceDetails, new DefaultRequestFactory());
-
-        // Extract expiration from token (assuming presence of 'exp' claim)
-        long tokenExpiration = token.getExpires().getTime();
-        long actualExpirationMillis = tokenExpiration - tokenExpirationBufferMillis;
-
-        cachedToken = token.getValue();
-        lastTokenFetchTimeMillis = currentTimeMillis;
+        cachedToken = accessToken.getTokenValue();
+        lastTokenFetchTimeMillis = System.currentTimeMillis();
 
         // Write token to disk (using Spring's ResourceLoader)
         resourceLoader.getResource(tokenFilePath).createFileFromContent(cachedToken);
+    }
+
+    private boolean isValidToken(String token) {
+        try {
+            // Verify token signature using Spring Security's TokenVerifier (optional)
+            TokenVerifier verifier = new DefaultTokenVerifier("YOUR_AUTH0_DOMAIN"); // Replace with your domain
+            AccessTokenPayload payload = verifier.decode(token);
+            return true;
+        } catch (InvalidTokenException e) {
+            return false;
+        }
 
         // Optional: Parse expiration claim for verification (using Jackson ObjectMapper)
         // ObjectMapper mapper = new ObjectMapper();
-        // JsonNode node = mapper.readValue(cachedToken, JsonNode.class);
+        // JsonNode node = mapper.readValue(token, JsonNode.class);
         // Long exp = node.get("exp").asLong(); // Assuming 'exp' claim exists
+        // return exp > (System.currentTimeMillis() / 1000); // Convert to seconds
     }
 }
