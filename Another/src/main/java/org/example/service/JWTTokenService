@@ -2,7 +2,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClient;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClientManager;
-import org.springframework.security.oauth2.client.annotation.RegisteredOAuth2AuthorizedClient;
+import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
@@ -16,9 +16,11 @@ public class JWTTokenService {
     private final RestTemplate restTemplate;
     private final OAuth2AuthorizedClientManager authorizedClientManager;
     private final String tokenFilePath;
+
     private volatile String cachedToken;
     private volatile long lastTokenFetchTimeMillis;
 
+    @Autowired
     public JWTTokenService(RestTemplate restTemplate,
                            OAuth2AuthorizedClientManager authorizedClientManager,
                            @Value("${jwt.token.file.path}") String tokenFilePath) {
@@ -45,8 +47,11 @@ public class JWTTokenService {
     }
 
     private String fetchTokenFromOAuth2() {
+        OAuth2AuthenticationToken authentication = ...; // Obtain authentication token from Spring Security context
         OAuth2AuthorizedClient client = authorizedClientManager.authorize(
-                OAuth2AuthorizeRequest.withClientRegistrationId("your-client-name").principal("user").build());
+                OAuth2AuthorizedClientRequest.withClientRegistrationId("your-client-name")
+                        .principal(authentication.getName())
+                        .build());
 
         if (client != null && client.getAccessToken() != null) {
             return client.getAccessToken().getTokenValue();
