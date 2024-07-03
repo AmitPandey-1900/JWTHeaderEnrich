@@ -22,7 +22,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 @Service
 public class Auth0TokenService {
 
-    private static final String TOKEN_FILE_PATH = "token.json";
+    @Value("${token.file.path}")
+    private String tokenFilePath;
 
     @Value("${auth0.auth_url}")
     private String authUrl;
@@ -49,7 +50,7 @@ public class Auth0TokenService {
     }
 
     private void loadTokenFromDisk() {
-        Path path = Paths.get(TOKEN_FILE_PATH);
+        Path path = Paths.get(tokenFilePath);
         if (Files.exists(path)) {
             try {
                 JsonNode tokenNode = objectMapper.readTree(Files.newBufferedReader(path));
@@ -63,7 +64,7 @@ public class Auth0TokenService {
     }
 
     private void saveTokenToDisk() {
-        Path path = Paths.get(TOKEN_FILE_PATH);
+        Path path = Paths.get(tokenFilePath);
         Map<String, String> tokenData = new HashMap<>();
         tokenData.put("access_token", token);
         tokenData.put("expiry_time", expiryTime.toString());
