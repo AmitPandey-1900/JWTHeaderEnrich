@@ -1,9 +1,30 @@
+import java.io.FileWriter;
+import java.io.IOException;
+import java.util.concurrent.TimeUnit;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.io.ResourceLoader;
+import org.springframework.security.oauth2.client.OAuth2ClientContext;
+import org.springframework.security.oauth2.client.resource.ClientCredentialsResourceDetails;
+import org.springframework.security.oauth2.client.token.DefaultTokenProvider;
+import org.springframework.security.oauth2.common.DefaultOAuth2AccessToken;
+import org.springframework.security.oauth2.common.request.DefaultRequestFactory;
+import org.springframework.security.oauth2.provider.token.TokenProvider;
+import org.springframework.stereotype.Service;
+import org.springframework.util.FileCopyUtils;
+import org.springframework.util.ResourceUtils;
+
+import com.fasterxml.jackson.databind.ObjectMapper; // Optional for parsing expiration claim (if needed)
+
 @Service
 @PropertySource("classpath:auth0-client.properties") // Replace with your property source name
 public class JWTTokenService {
 
     @Autowired
     private OAuth2ClientContext oauth2ClientContext;
+
+    @Autowired
+    private ResourceLoader resourceLoader; // For resolving file path
 
     @Value("${spring.security.oauth2.client.registration.auth0.client-id}")
     private String clientId;
@@ -16,16 +37,16 @@ public class JWTTokenService {
 
     private volatile String cachedToken;
     private volatile long lastTokenFetchTimeMillis;
-    private final long tokenExpirationMillis;
+    private final long tokenExpirationBufferMillis;
 
     public JWTTokenService(@Value("${jwt.token.expiration.buffer}") Long expirationBufferSeconds) {
-        this.tokenExpirationMillis = expirationBufferSeconds * 1000L; // Convert seconds to milliseconds
+        this.tokenExpirationBufferMillis = TimeUnit.SECONDS.toMillis(expirationBufferSeconds);
     }
 
     public synchronized String getUnexpiredToken() throws IOException {
         long currentTimeMillis = System.currentTimeMillis();
 
-        if (cachedToken != null && (currentTimeMillis - lastTokenFetchTimeMillis) < tokenExpirationMillis) {
+        if (cachedToken != null && (currentTimeMillis - lastTokenFetchTimeMillis) < tokenExpirationBufferMillis) {
             return cachedToken;
         }
 
@@ -39,21 +60,24 @@ public class JWTTokenService {
         resourceDetails.setClientId(clientId);
         resourceDetails.setClientSecret(clientSecret);
         resourceDetails.setGrantType("client_credentials");
-        resourceDetails.setAccessTokenUri("https://auth0.com/docs/get-started/tenant-settings"); // Replace with your Auth0 tenant URL
+        resourceDetails.setAccessTokenUri("https://YOUR_AUTH0_TENANT_URL"); // Replace with your actual URL
 
         TokenProvider<DefaultOAuth2AccessToken> tokenProvider = new DefaultTokenProvider<DefaultOAuth2AccessToken>();
         DefaultOAuth2AccessToken token = tokenProvider.obtainAccessToken(resourceDetails, new DefaultRequestFactory());
 
         // Extract expiration from token (assuming presence of 'exp' claim)
         long tokenExpiration = token.getExpires().getTime();
-        long actualExpirationMillis = tokenExpiration - tokenExpirationMillis; // Apply buffer
+        long actualExpirationMillis = tokenExpiration - tokenExpirationBufferMillis;
 
         cachedToken = token.getValue();
         lastTokenFetchTimeMillis = currentTimeMillis;
 
-        // Write token to disk (implementation specific)
-        try (Writer writer = new FileWriter(tokenFilePath)) {
-            writer.write(cachedToken);
-        }
+        // Write token to disk (using Spring's ResourceLoader)
+        resourceLoader.getResource(tokenFilePath).createFileFromContent(cachedToken);
+
+        // Optional: Parse expiration claim for verification (using Jackson ObjectMapper)
+        // ObjectMapper mapper = new ObjectMapper();
+        // JsonNode node = mapper.readValue(cachedToken, JsonNode.class);
+        // Long exp = node.get("exp").asLong(); // Assuming 'exp' claim exists
     }
 }
