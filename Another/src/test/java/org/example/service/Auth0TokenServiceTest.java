@@ -60,8 +60,8 @@ public class Auth0TokenServiceTest {
             Map<String, String> tokenData = new HashMap<>();
             tokenData.put("access_token", "existing-token");
             tokenData.put("expiry_time", Instant.now().plusSeconds(3600).toString()); // 1 hour expiry
-            when(objectMapper.readTree(any(Path.class)))
-                    .thenReturn(objectMapper.valueToTree(tokenData));
+            JsonNode tokenNode = new ObjectMapper().valueToTree(tokenData);
+            when(objectMapper.readTree(any(Path.class))).thenReturn(tokenNode);
 
             // Mock RestTemplate behavior
             ResponseEntity<String> responseEntity = ResponseEntity.ok("{\"access_token\": \"dummy-token\", \"expires_in\": 3600}");
