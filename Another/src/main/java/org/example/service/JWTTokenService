@@ -1,90 +1,59 @@
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.*;
-import org.springframework.security.oauth2.client.*;
-import org.springframework.security.oauth2.client.registration.*;
-import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
-
-import java.io.BufferedWriter;
-import java.io.FileWriter;
-import java.io.IOException;
-
 @Service
+@PropertySource("classpath:auth0-client.properties") // Replace with your property source name
 public class JWTTokenService {
 
-    private final RestTemplate restTemplate;
-    private final OAuth2AuthorizedClientManager authorizedClientManager;
-    private final ClientRegistrationRepository clientRegistrationRepository;
-    private final String tokenFilePath;
+    @Autowired
+    private OAuth2ClientContext oauth2ClientContext;
+
+    @Value("${spring.security.oauth2.client.registration.auth0.client-id}")
+    private String clientId;
+
+    @Value("${spring.security.oauth2.client.registration.auth0.client-secret}")
+    private String clientSecret;
+
+    @Value("${data.file.path}") // Path to write token to disk
+    private String tokenFilePath;
 
     private volatile String cachedToken;
     private volatile long lastTokenFetchTimeMillis;
+    private final long tokenExpirationMillis;
 
-    @Autowired
-    public JWTTokenService(RestTemplate restTemplate,
-                           OAuth2AuthorizedClientManager authorizedClientManager,
-                           ClientRegistrationRepository clientRegistrationRepository,
-                           @Value("${jwt.token.file.path}") String tokenFilePath) {
-        this.restTemplate = restTemplate;
-        this.authorizedClientManager = authorizedClientManager;
-        this.clientRegistrationRepository = clientRegistrationRepository;
-        this.tokenFilePath = tokenFilePath;
+    public JWTTokenService(@Value("${jwt.token.expiration.buffer}") Long expirationBufferSeconds) {
+        this.tokenExpirationMillis = expirationBufferSeconds * 1000L; // Convert seconds to milliseconds
     }
 
-    public String getJwtToken() {
+    public synchronized String getUnexpiredToken() throws IOException {
         long currentTimeMillis = System.currentTimeMillis();
 
-        if (cachedToken != null && (currentTimeMillis - lastTokenFetchTimeMillis) < getTokenExpirationTimeMillis()) {
+        if (cachedToken != null && (currentTimeMillis - lastTokenFetchTimeMillis) < tokenExpirationMillis) {
             return cachedToken;
         }
 
-        synchronized (this) {
-            if (cachedToken == null || (currentTimeMillis - lastTokenFetchTimeMillis) >= getTokenExpirationTimeMillis()) {
-                cachedToken = fetchTokenFromOAuth2();
-                writeTokenToFile(cachedToken);
-                lastTokenFetchTimeMillis = currentTimeMillis;
-            }
-            return cachedToken;
-        }
+        fetchAndStoreToken();
+        return cachedToken;
     }
 
-    private String fetchTokenFromOAuth2() {
-        String clientRegistrationId = "auth0"; // Replace with your client registration id
-        ClientRegistration clientRegistration = clientRegistrationRepository.findByRegistrationId(clientRegistrationId);
+    private void fetchAndStoreToken() throws IOException {
+        ClientCredentialsResourceDetails resourceDetails = new ClientCredentialsResourceDetails();
+        resourceDetails.setId("auth0"); // Adjust if your client registration ID is different
+        resourceDetails.setClientId(clientId);
+        resourceDetails.setClientSecret(clientSecret);
+        resourceDetails.setGrantType("client_credentials");
+        resourceDetails.setAccessTokenUri("https://auth0.com/docs/get-started/tenant-settings"); // Replace with your Auth0 tenant URL
 
-        if (clientRegistration == null) {
-            throw new IllegalArgumentException("Invalid client registration id: " + clientRegistrationId);
+        TokenProvider<DefaultOAuth2AccessToken> tokenProvider = new DefaultTokenProvider<DefaultOAuth2AccessToken>();
+        DefaultOAuth2AccessToken token = tokenProvider.obtainAccessToken(resourceDetails, new DefaultRequestFactory());
+
+        // Extract expiration from token (assuming presence of 'exp' claim)
+        long tokenExpiration = token.getExpires().getTime();
+        long actualExpirationMillis = tokenExpiration - tokenExpirationMillis; // Apply buffer
+
+        cachedToken = token.getValue();
+        lastTokenFetchTimeMillis = currentTimeMillis;
+
+        // Write token to disk (implementation specific)
+        try (Writer writer = new FileWriter(tokenFilePath)) {
+            writer.write(cachedToken);
         }
-
-        OAuth2AuthorizedClientRequest clientRequest = OAuth2AuthorizedClientRequest
-                .withClientRegistrationId(clientRegistrationId)
-                .principal("your-client-id") // Replace with your client ID
-                .clientCredentials()
-                .build();
-
-        OAuth2AuthorizedClient authorizedClient = authorizedClientManager.authorize(clientRequest);
-
-        if (authorizedClient != null) {
-            OAuth2AccessToken accessToken = authorizedClient.getAccessToken();
-            if (accessToken != null) {
-                return accessToken.getTokenValue();
-            }
-        }
-
-        throw new RuntimeException("Failed to fetch JWT token from OAuth2 provider");
-    }
-
-    private void writeTokenToFile(String token) {
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(tokenFilePath))) {
-            writer.write(token);
-        } catch (IOException e) {
-            // Handle file write error (e.g., log and throw exception)
-        }
-    }
-
-    private long getTokenExpirationTimeMillis() {
-        // Return your token expiration time in milliseconds
-        return 3600 * 1000L; // Example: 1 hour
     }
 }
