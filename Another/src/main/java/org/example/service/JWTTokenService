@@ -1,13 +1,12 @@
-package org.example.service;
-
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.Jwts;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.ResponseEntity;
+import org.springframework.security.oauth2.client.OAuth2AuthorizedClient;
+import org.springframework.security.oauth2.client.OAuth2AuthorizedClientManager;
+import org.springframework.security.oauth2.client.annotation.RegisteredOAuth2AuthorizedClient;
+import org.springframework.security.oauth2.client.annotation.RegisteredOAuth2AuthorizedClientManager;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
@@ -18,66 +17,46 @@ import java.util.Date;
 @Service
 public class JWTTokenService {
 
-    private final String jwtTokenUrl;
     private final RestTemplate restTemplate;
-    private final long tokenExpirationTimeMillis;
+    private final OAuth2AuthorizedClientManager authorizedClientManager;
     private final String tokenFilePath;
-    private final String jwtSecret; // Injected JWT secret
 
     private volatile String cachedToken;
     private volatile long lastTokenFetchTimeMillis;
 
     public JWTTokenService(RestTemplate restTemplate,
-                           @Value("${jwt.token.url}") String jwtTokenUrl,
-                           @Value("${jwt.token.expirationTime}") Long tokenExpirationTimeSeconds,
-                           @Value("${jwt.token.file.path}") String tokenFilePath,
-                           @Value("${jwt.secret}") String jwtSecret) { // Inject the secret
+                           OAuth2AuthorizedClientManager authorizedClientManager,
+                           @Value("${jwt.token.file.path}") String tokenFilePath) {
         this.restTemplate = restTemplate;
-        this.jwtTokenUrl = jwtTokenUrl;
-        this.tokenExpirationTimeMillis = tokenExpirationTimeSeconds * 1000L;
+        this.authorizedClientManager = authorizedClientManager;
         this.tokenFilePath = tokenFilePath;
-        this.jwtSecret = jwtSecret;
     }
 
     public String getJwtToken() {
         long currentTimeMillis = System.currentTimeMillis();
 
-        if (cachedToken != null && (currentTimeMillis - lastTokenFetchTimeMillis) < tokenExpirationTimeMillis) {
+        if (cachedToken != null && (currentTimeMillis - lastTokenFetchTimeMillis) < getTokenExpirationTimeMillis()) {
             return cachedToken;
         }
 
         synchronized (this) {
-            if (cachedToken == null || (currentTimeMillis - lastTokenFetchTimeMillis) >= tokenExpirationTimeMillis) {
-                cachedToken = readTokenFromFile();
-
-                if (cachedToken == null || isTokenExpired(cachedToken)) {
-                    cachedToken = fetchTokenFromUrl();
-                    writeTokenToFile(cachedToken);
-                }
-
+            if (cachedToken == null || (currentTimeMillis - lastTokenFetchTimeMillis) >= getTokenExpirationTimeMillis()) {
+                cachedToken = fetchTokenFromOAuth2();
+                writeTokenToFile(cachedToken);
                 lastTokenFetchTimeMillis = currentTimeMillis;
             }
             return cachedToken;
         }
     }
 
-    private String fetchTokenFromUrl() {
-        ResponseEntity<String> response = restTemplate.exchange(
-                jwtTokenUrl, HttpMethod.GET, new HttpEntity<>(new HttpHeaders()), String.class);
+    private String fetchTokenFromOAuth2() {
+        OAuth2AuthorizedClient client = authorizedClientManager.authorize(
+                OAuth2AuthorizeRequest.withClientRegistrationId("your-client-name").principal("user").build());
 
-        if (response.getStatusCode().is2xxSuccessful()) {
-            return response.getBody();
+        if (client != null && client.getAccessToken() != null) {
+            return client.getAccessToken().getTokenValue();
         } else {
-            throw new RuntimeException("Failed to fetch JWT token: " + response.getStatusCodeValue());
-        }
-    }
-
-    private String readTokenFromFile() {
-        try (BufferedReader reader = new BufferedReader(new FileReader(tokenFilePath))) {
-            return reader.readLine();
-        } catch (IOException e) {
-            // Handle file read error (e.g., log and return null)
-            return null;
+            throw new RuntimeException("Failed to fetch JWT token from OAuth2 provider");
         }
     }
 
@@ -89,21 +68,8 @@ public class JWTTokenService {
         }
     }
 
-    private boolean isTokenExpired(String token) {
-        try {
-            Claims claims = Jwts.parserBuilder()
-                   // .setSigningKey(jwtSecret)
-                    .build()
-                    .parseClaimsJws(token)
-                    .getBody();
-
-            Date expiration = claims.getExpiration();
-            return expiration.before(Date.from(Instant.now()));
-        } catch (ExpiredJwtException e) {
-            return true;
-        } catch (Exception e) {
-            // Handle other exceptions (log and potentially re-fetch)
-            return true;
-        }
+    private long getTokenExpirationTimeMillis() {
+        // Return your token expiration time in milliseconds
+        return 3600 * 1000L; // Example: 1 hour
     }
 }
