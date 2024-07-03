@@ -1,12 +1,3 @@
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.StandardOpenOption;
-import java.time.Instant;
-import java.util.HashMap;
-import java.util.Map;
-
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -19,33 +10,42 @@ import org.springframework.web.client.RestTemplate;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
+import java.time.Instant;
+import java.util.HashMap;
+import java.util.Map;
+
 @Service
 public class Auth0TokenService {
 
-    @Value("${token.file.path}")
-    private String tokenFilePath;
-
-    @Value("${auth0.auth_url}")
-    private String authUrl;
-
-    @Value("${auth0.client_id}")
-    private String clientId;
-
-    @Value("${auth0.client_secret}")
-    private String clientSecret;
-
-    @Value("${auth0.audience}")
-    private String audience;
+    private final RestTemplate restTemplate;
+    private final ObjectMapper objectMapper;
+    private final String tokenFilePath;
+    private final String authUrl;
+    private final String clientId;
+    private final String clientSecret;
+    private final String audience;
 
     private String token;
     private Instant expiryTime;
 
-    private final RestTemplate restTemplate;
-    private final ObjectMapper objectMapper;
-
-    public Auth0TokenService(RestTemplate restTemplate, ObjectMapper objectMapper) {
+    public Auth0TokenService(RestTemplate restTemplate, ObjectMapper objectMapper,
+                             @Value("${token.file.path}") String tokenFilePath,
+                             @Value("${auth0.auth_url}") String authUrl,
+                             @Value("${auth0.client_id}") String clientId,
+                             @Value("${auth0.client_secret}") String clientSecret,
+                             @Value("${auth0.audience}") String audience) {
         this.restTemplate = restTemplate;
         this.objectMapper = objectMapper;
+        this.tokenFilePath = tokenFilePath;
+        this.authUrl = authUrl;
+        this.clientId = clientId;
+        this.clientSecret = clientSecret;
+        this.audience = audience;
         loadTokenFromDisk();
     }
 
