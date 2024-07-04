@@ -12,6 +12,7 @@ import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.client.RestTemplate;
 
@@ -23,7 +24,13 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
-@SpringBootTest
+@SpringBootTest(properties = {
+        "token.file.path=path/to/token/file",
+        "auth0.auth_url=http://mock.auth0.com/oauth/token",
+        "auth0.client_id=mockClientId",
+        "auth0.client_secret=mockClientSecret",
+        "auth0.audience=mockAudience"
+})
 public class Auth0TokenServiceTest {
 
     @Mock
