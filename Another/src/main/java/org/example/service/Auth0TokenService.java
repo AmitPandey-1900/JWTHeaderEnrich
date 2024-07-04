@@ -1,9 +1,10 @@
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.PropertySource;
+import org.springframework.core.env.Environment;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
@@ -20,6 +21,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 @Service
+@PropertySource("classpath:resource.properties")
 public class Auth0TokenService {
 
     private final RestTemplate restTemplate;
@@ -33,42 +35,40 @@ public class Auth0TokenService {
     private String token;
     private Instant expiryTime;
 
-    public Auth0TokenService(RestTemplate restTemplate, ObjectMapper objectMapper,
-                             @Value("${token.file.path}") String tokenFilePath,
-                             @Value("${auth0.auth_url}") String authUrl,
-                             @Value("${auth0.client_id}") String clientId,
-                             @Value("${auth0.client_secret}") String clientSecret,
-                             @Value("${auth0.audience}") String audience) {
+    @Autowired
+    private Environment env;
+
+    public Auth0TokenService(RestTemplate restTemplate, ObjectMapper objectMapper) {
         this.restTemplate = restTemplate;
         this.objectMapper = objectMapper;
-        this.tokenFilePath = tokenFilePath;
-        this.authUrl = authUrl;
-        this.clientId = clientId;
-        this.clientSecret = clientSecret;
-        this.audience = audience;
+        this.tokenFilePath = env.getProperty("token.file.path");
+        this.authUrl = env.getProperty("auth0.auth_url");
+        this.clientId = env.getProperty("auth0.client_id");
+        this.clientSecret = env.getProperty("auth0.client_secret");
+        this.audience = env.getProperty("auth0.audience");
         loadTokenFromDisk();
     }
 
     private void loadTokenFromDisk() {
-        Path path = Paths.get(tokenFilePath);
-        if (Files.exists(path)) {
-            try {
+        try {
+            Path path = Paths.get(tokenFilePath);
+            if (Files.exists(path)) {
                 JsonNode tokenNode = objectMapper.readTree(Files.newBufferedReader(path));
                 token = tokenNode.get("access_token").asText();
                 expiryTime = Instant.parse(tokenNode.get("expiry_time").asText());
-            } catch (IOException e) {
-                // Handle exception
-                e.printStackTrace();
             }
+        } catch (IOException e) {
+            // Handle exception
+            e.printStackTrace();
         }
     }
 
     private void saveTokenToDisk() {
-        Path path = Paths.get(tokenFilePath);
-        Map<String, String> tokenData = new HashMap<>();
-        tokenData.put("access_token", token);
-        tokenData.put("expiry_time", expiryTime.toString());
         try {
+            Path path = Paths.get(tokenFilePath);
+            Map<String, String> tokenData = new HashMap<>();
+            tokenData.put("access_token", token);
+            tokenData.put("expiry_time", expiryTime.toString());
             Files.write(path, objectMapper.writeValueAsBytes(tokenData), StandardOpenOption.CREATE);
         } catch (IOException e) {
             // Handle exception
