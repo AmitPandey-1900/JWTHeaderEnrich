@@ -1,0 +1,75 @@
+Assuming you have a ConfigMap named app-config with keys like token.file.path, auth0.auth_url, auth0.client_id, auth0.client_secret, and auth0.audience, you can set these values as environment variables in your Kubernetes deployment manifest (deployment.yaml).
+
+token.file.path - this will be path for file storage
+
+deployment.yml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-app
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: my-app
+  template:
+    metadata:
+      labels:
+        app: my-app
+    spec:
+      containers:
+        - name: my-app-container
+          image: my-app-image:latest
+          env:
+            - name: token_file_path
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: token.file.path
+            - name: auth0_auth_url
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: auth0.auth_url
+            - name: auth0_client_id
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: auth0.client_id
+            - name: auth0_client_secret
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: auth0.client_secret
+            - name: auth0_audience
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: auth0.audience
+          ports:
+            - containerPort: 8080
+
+ConfigMap Setup: Ensure you have a ConfigMap in your AKS cluster that contains the necessary mappings (userId to clientId). For example:
+
+yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: client-user-mapping
+data:
+  user1: clientId1
+  user2: clientId2
+
+Deployment YAML: Modify your deployment YAML (deployment.yaml) to include the ConfigMap as an environment variable:
+spec:
+  containers:
+    - name: your-app-container
+      image: your-app-image
+      envFrom:
+        - configMapRef:
+            name: client-user-mapping
+
+in my springboot app , I will load it as 
+@Value("${client.user.mapping.configmap.key}")
+private Map<String, String> clientIdMap;
+
