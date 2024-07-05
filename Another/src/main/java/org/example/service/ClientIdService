@@ -1,44 +1,28 @@
-package org.example.service;
+package org.example.service; // Adjust package if needed
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import javax.annotation.PostConstruct;
-import java.io.FileInputStream;
-import java.io.IOException;
 import java.util.Map;
-import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class ClientIdService {
 
-    @Value("${clientusermapping.file.path}")
-    private String propertiesFilePath;
-
-    private final Map<String, String> clientIdCache = new ConcurrentHashMap<>();
-    private Properties properties = new Properties();
-
-    @PostConstruct
-    public void init() throws IOException {
-        loadProperties();
-    }
+    @Value("${client.user.mapping.configmap.key}")
+    public Map<String, String> clientIdMap;//Map injection
+     private final Map<String, String> clientIdCache = new ConcurrentHashMap<>();
 
     public String getClientId(String userId) {
-        return clientIdCache.computeIfAbsent(userId, this::loadClientIdFromProperties);
+        return clientIdCache.computeIfAbsent(userId, this::loadClientIdFromMap);
     }
 
-    private String loadClientIdFromProperties(String userId) {
-        String clientId = properties.getProperty(userId);
+    private String loadClientIdFromMap(String userId) {
+        String clientId = clientIdMap.get(userId);
         if (clientId == null) {
+            // Throw the IllegalArgumentException when client ID is not found
             throw new IllegalArgumentException("Client ID not found for user: " + userId);
         }
         return clientId;
-    }
-
-    private void loadProperties() throws IOException {
-        try (FileInputStream input = new FileInputStream(propertiesFilePath)) {
-            properties.load(input);
-        }
     }
 }
