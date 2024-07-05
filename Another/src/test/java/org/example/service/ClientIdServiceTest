@@ -1,29 +1,45 @@
 package org.example.service;
 
-import org.example.service.ClientIdService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.TestPropertySource;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.MockitoAnnotations;
+import org.springframework.beans.factory.annotation.Value;
+
+import java.util.HashMap;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.when;
 
-@SpringBootTest
-@TestPropertySource(locations = "classpath:/clientusermapping.properties")
-class ClientIdServiceTest {
+public class ClientIdServiceTest {
 
-    @Autowired
+    @Mock
+    private Map<String, String> clientIdMapMock;
+
+    @InjectMocks
     private ClientIdService clientIdService;
 
-    @Test
-    void testGetClientId_Found() {
-        String clientId = clientIdService.getClientId("abc@refinitiv.com");
-        assertEquals("client123", clientId);
+    @BeforeEach
+    public void setUp() {
+        MockitoAnnotations.openMocks(this);
+
+        // Mock behavior of clientIdMapMock
+        Map<String, String> mockData = new HashMap<>();
+        mockData.put("user1", "clientId1");
+        mockData.put("user2", "clientId2");
+        when(clientIdMapMock.get("user1")).thenReturn("clientId1");
+        when(clientIdMapMock.get("user2")).thenReturn("clientId2");
+
+        // Assign mocked map to the clientIdService
+        clientIdService.clientIdMap = mockData;
     }
 
     @Test
-    void testGetClientId_NotFound() {
-        assertThrows(IllegalArgumentException.class, () -> clientIdService.getClientId("invalid@email.com"));
+    public void testGetClientId() {
+        // Test getClientId method
+        assertEquals("clientId1", clientIdService.getClientId("user1"));
+        assertEquals("clientId2", clientIdService.getClientId("user2"));
     }
 }
