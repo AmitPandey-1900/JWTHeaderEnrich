@@ -1,16 +1,19 @@
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.PropertySource;
-import org.springframework.core.env.Environment;
+package org.example.service;
+
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
+
+import org.springframework.http.HttpHeaders;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import javax.annotation.PostConstruct;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -21,7 +24,6 @@ import java.util.HashMap;
 import java.util.Map;
 
 @Service
-@PropertySource("classpath:resource.properties")
 public class Auth0TokenService {
 
     private final RestTemplate restTemplate;
@@ -35,21 +37,23 @@ public class Auth0TokenService {
     private String token;
     private Instant expiryTime;
 
-    @Autowired
-    private Environment env;
-
-    public Auth0TokenService(RestTemplate restTemplate, ObjectMapper objectMapper) {
+    public Auth0TokenService(RestTemplate restTemplate, ObjectMapper objectMapper,
+                             @Value("${token.file.path}") String tokenFilePath,
+                             @Value("${auth0.auth_url}") String authUrl,
+                             @Value("${auth0.client_id}") String clientId,
+                             @Value("${auth0.client_secret}") String clientSecret,
+                             @Value("${auth0.audience}") String audience) {
         this.restTemplate = restTemplate;
         this.objectMapper = objectMapper;
-        this.tokenFilePath = env.getProperty("token.file.path");
-        this.authUrl = env.getProperty("auth0.auth_url");
-        this.clientId = env.getProperty("auth0.client_id");
-        this.clientSecret = env.getProperty("auth0.client_secret");
-        this.audience = env.getProperty("auth0.audience");
+        this.tokenFilePath = tokenFilePath;
+        this.authUrl = authUrl;
+        this.clientId = clientId;
+        this.clientSecret = clientSecret;
+        this.audience = audience;
         loadTokenFromDisk();
     }
 
-    private void loadTokenFromDisk() {
+    private synchronized void loadTokenFromDisk() {
         try {
             Path path = Paths.get(tokenFilePath);
             if (Files.exists(path)) {
@@ -63,13 +67,17 @@ public class Auth0TokenService {
         }
     }
 
-    private void saveTokenToDisk() {
+    private synchronized void saveTokenToDisk() {
         try {
             Path path = Paths.get(tokenFilePath);
+            if (!Files.exists(path.getParent())) {
+                Files.createDirectories(path.getParent());
+            }
             Map<String, String> tokenData = new HashMap<>();
             tokenData.put("access_token", token);
             tokenData.put("expiry_time", expiryTime.toString());
-            Files.write(path, objectMapper.writeValueAsBytes(tokenData), StandardOpenOption.CREATE);
+            Files.write(path, objectMapper.writeValueAsBytes(tokenData),
+                    StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
         } catch (IOException e) {
             // Handle exception
             e.printStackTrace();
@@ -106,17 +114,20 @@ public class Auth0TokenService {
         }
     }
 
-    public String getToken() {
+    public synchronized String getToken() {
         if (token == null || Instant.now().isAfter(expiryTime)) {
             fetchTokenFromAuth0();
+            saveTokenToDisk(); // Save token to disk after fetching new token
         }
         return token;
     }
 
+    // Scheduled task to refresh token before expiry
     @Scheduled(fixedDelayString = "${token.refresh.delay:300000}")
-    private void refreshToken() {
+    private synchronized void refreshToken() {
         if (token == null || Instant.now().isAfter(expiryTime.minusSeconds(300))) {
             fetchTokenFromAuth0();
+            saveTokenToDisk(); // Save token to disk after fetching new token
         }
     }
 }
