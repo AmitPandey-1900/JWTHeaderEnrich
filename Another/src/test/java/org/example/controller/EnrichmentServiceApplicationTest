@@ -39,7 +39,7 @@ public class EnrichmentServiceApplicationTest {
     @Test
     public void testWildcardMapping() throws Exception {
         // Mock service responses
-        when(jwtTokenService.getJwtToken()).thenReturn(jwtTokenUrl);
+        when(jwtTokenService.getToken()).thenReturn(jwtTokenUrl);
         when(clientIdService.getClientId(anyString())).thenReturn("mockClientId");
         when(restTemplate.exchange(anyString(), any(), any(), any(Class.class)))
                 .thenReturn(ResponseEntity.ok("Mock TradeFeeder response"));
