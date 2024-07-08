@@ -1,0 +1,62 @@
+package org.example.service;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.example.service.JWTTokenService;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.client.RestTemplate;
+
+import java.io.IOException;
+import java.io.Reader;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.time.Instant;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+@ExtendWith(MockitoExtension.class)
+class JWTTokenServiceTest {
+
+    @Mock
+    private RestTemplate restTemplate;
+
+    @Mock
+    private ObjectMapper objectMapper;
+
+    private final String tokenFilePath = "src/test/resources/test-token.json";
+    private final String authUrl = "https://auth0.com/oauth/token";
+    private final String clientId = "test-client-id";
+    private final String clientSecret = "test-client-secret";
+    private final String audience = "test-audience";
+    private JWTTokenService jwtTokenService = new JWTTokenService(restTemplate, tokenFilePath, authUrl, clientId, clientSecret, audience);;
+
+    @BeforeEach
+    void setUp() throws IOException {
+        jwtTokenService = new JWTTokenService(restTemplate, tokenFilePath, authUrl, clientId, clientSecret, audience);
+    }
+
+    @Test
+    void testLoadTokenFromDisk() throws IOException {
+        // Setup
+        Reader reader = Files.newBufferedReader(Paths.get(tokenFilePath));
+        System.out.println("File Content: " + Files.readString(Paths.get(tokenFilePath))); // Log file content
+
+        jwtTokenService.loadTokenFromDisk();
+
+        // Assert
+        assertEquals("test-token", jwtTokenService.token);
+        assertEquals(Instant.parse("2024-07-08T00:00:00Z"), jwtTokenService.expiryTime);
+
+        // Clean up
+       // Files.deleteIfExists(path);
+    }
+}
