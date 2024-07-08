@@ -1,83 +1,137 @@
-import java.io.FileWriter;
-import java.io.IOException;
-import java.util.concurrent.TimeUnit;
+package org.example.service;
 
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.core.io.ResourceLoader;
-import org.springframework.security.oauth2.client.OAuth2ClientContext;
-import org.springframework.security.oauth2.common.DefaultOAuth2AccessToken;
-import org.springframework.security.oauth2.common.exceptions.InvalidTokenException;
-import org.springframework.security.oauth2.common.util.AccessTokenPayload;
-import org.springframework.security.oauth2.provider.token.ResourceVerifier;
-import org.springframework.security.oauth2.provider.token.TokenVerifier;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.ResponseEntity;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import org.springframework.util.FileCopyUtils;
-import org.springframework.util.ResourceUtils;
+import org.springframework.web.client.RestTemplate;
 
-import com.fasterxml.jackson.databind.ObjectMapper; // Optional for parsing expiration claim
+import org.springframework.http.HttpHeaders;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import javax.annotation.PostConstruct;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
+import java.time.Instant;
+import java.util.HashMap;
+import java.util.Map;
 
 @Service
 public class JWTTokenService {
 
-    @Autowired
-    private OAuth2ClientContext oauth2ClientContext;
+    public final RestTemplate restTemplate;
+    public ObjectMapper objectMapper;
+    public final String tokenFilePath;
+    public final String authUrl;
+    public final String clientId;
+    public final String clientSecret;
+    public final String audience;
 
-    @Autowired
-    private ResourceLoader resourceLoader; // For resolving file path
+    public String token;
+    public Instant expiryTime;
 
-    @Value("${spring.security.oauth2.client.registration.auth0.client-id}")
-    private String clientId;
-
-    @Value("${data.file.path}") // Path to write token to disk
-    private String tokenFilePath;
-
-    @Value("${jwt.token.expiration.buffer}") // Buffer before expiry (seconds)
-    private Long expirationBufferSeconds;
-
-    private volatile String cachedToken;
-    private volatile long lastTokenFetchTimeMillis;
-
-    public synchronized String getUnexpiredToken() throws IOException {
-        long currentTimeMillis = System.currentTimeMillis();
-
-        if (cachedToken != null && (currentTimeMillis - lastTokenFetchTimeMillis) < TimeUnit.SECONDS.toMillis(expirationBufferSeconds)) {
-            // Check token validity before returning from cache
-            if (isValidToken(cachedToken)) {
-                return cachedToken;
-            }
-        }
-
-        fetchAndStoreToken();
-        return cachedToken;
+    public JWTTokenService(RestTemplate restTemplate,
+                            @Value("${token.file.path}") String tokenFilePath,
+                            @Value("${auth0.auth_url}") String authUrl,
+                            @Value("${auth0.client_id}") String clientId,
+                            @Value("${auth0.client_secret}") String clientSecret,
+                            @Value("${auth0.audience}") String audience) {
+        this.restTemplate = restTemplate;
+        this.tokenFilePath = tokenFilePath;
+        this.authUrl = authUrl;
+        this.clientId = clientId;
+        this.clientSecret = clientSecret;
+        this.audience = audience;
+        objectMapper = null;
+        loadTokenFromDisk();
     }
 
-    private void fetchAndStoreToken() throws IOException {
-        AuthorizedClientServiceOAuth2AccessToken accessToken = oauth2ClientContext.getAccessToken();
-        if (accessToken == null) {
-            throw new RuntimeException("No access token available from OAuth2 client context");
-        }
-
-        cachedToken = accessToken.getTokenValue();
-        lastTokenFetchTimeMillis = System.currentTimeMillis();
-
-        // Write token to disk (using Spring's ResourceLoader)
-        resourceLoader.getResource(tokenFilePath).createFileFromContent(cachedToken);
-    }
-
-    private boolean isValidToken(String token) {
+    public synchronized void loadTokenFromDisk() {
         try {
-            // Verify token signature using Spring Security's TokenVerifier (optional)
-            TokenVerifier verifier = new DefaultTokenVerifier("YOUR_AUTH0_DOMAIN"); // Replace with your domain
-            AccessTokenPayload payload = verifier.decode(token);
-            return true;
-        } catch (InvalidTokenException e) {
-            return false;
+            Path path = Paths.get(tokenFilePath);
+            if (Files.exists(path)) {
+                ObjectMapper obj = new ObjectMapper();
+                JsonNode tokenNode = obj.readTree(Files.newBufferedReader(path));
+                token = tokenNode.get("access_token").asText();
+                expiryTime = Instant.parse(tokenNode.get("expiry_time").asText());
+            }
+        } catch (IOException e) {
+            // Handle exception
+            e.printStackTrace();
         }
+    }
 
-        // Optional: Parse expiration claim for verification (using Jackson ObjectMapper)
-        // ObjectMapper mapper = new ObjectMapper();
-        // JsonNode node = mapper.readValue(token, JsonNode.class);
-        // Long exp = node.get("exp").asLong(); // Assuming 'exp' claim exists
-        // return exp > (System.currentTimeMillis() / 1000); // Convert to seconds
+    public synchronized void saveTokenToDisk() {
+        try {
+            objectMapper = new ObjectMapper();
+            Path path = Paths.get(tokenFilePath);
+            if (!Files.exists(path.getParent())) {
+                Files.createDirectories(path.getParent());
+            }
+            Map<String, String> tokenData = new HashMap<>();
+            tokenData.put("access_token", token);
+            tokenData.put("expiry_time", expiryTime.toString());
+            Files.write(path, objectMapper.writeValueAsBytes(tokenData),
+                    StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+        } catch (IOException e) {
+            // Handle exception
+            e.printStackTrace();
+        }
+    }
+
+    public void fetchTokenFromAuth0() {
+        HttpHeaders headers = new HttpHeaders();
+        objectMapper = new ObjectMapper();
+
+        headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+
+        Map<String, String> requestBody = new HashMap<>();
+        requestBody.put("client_id", clientId);
+        requestBody.put("client_secret", clientSecret);
+        //requestBody.put("audience", audience);
+        //requestBody.put("grant_type", "client_credentials");
+
+        HttpEntity<Map<String, String>> request = new HttpEntity<>(requestBody, headers);
+        ResponseEntity<String> response = restTemplate.exchange(authUrl, HttpMethod.POST, request, String.class);
+
+        if (response.getStatusCode().is2xxSuccessful()) {
+            try {
+                JsonNode responseJson = objectMapper.readTree(response.getBody());
+                token = responseJson.get("access_token").asText();
+                long expiresIn = responseJson.get("expires_in").asLong();
+                expiryTime = Instant.now().plusSeconds(expiresIn - 60); // Subtract 60 seconds to refresh a bit earlier
+                saveTokenToDisk();
+            } catch (IOException e) {
+                // Handle exception
+                e.printStackTrace();
+            }
+        } else {
+            // Handle unsuccessful response
+            System.err.println("Failed to fetch token: " + response.getStatusCode());
+        }
+    }
+
+    public synchronized String getToken() {
+        if (token == null || Instant.now().isAfter(expiryTime)) {
+            fetchTokenFromAuth0();
+            saveTokenToDisk(); // Save token to disk after fetching new token
+        }
+        return token;
+    }
+
+    // Scheduled task to refresh token before expiry
+    @Scheduled(fixedDelayString = "${token.refresh.delay:300000}")
+    public synchronized void refreshToken() {
+        if (token == null || Instant.now().isAfter(expiryTime.minusSeconds(300))) {
+            fetchTokenFromAuth0();
+            saveTokenToDisk(); // Save token to disk after fetching new token
+        }
     }
 }
