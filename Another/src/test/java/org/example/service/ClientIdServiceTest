@@ -6,40 +6,60 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.test.util.ReflectionTestUtils;
 
-import java.util.HashMap;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
-public class ClientIdServiceTest {
-
-    @Mock
-    private Map<String, String> clientIdMapMock;
+class ClientIdServiceTest {
 
     @InjectMocks
     private ClientIdService clientIdService;
 
+    @Mock
+    private Path mockPath;
+
     @BeforeEach
-    public void setUp() {
+    void setUp() {
         MockitoAnnotations.openMocks(this);
-
-        // Mock behavior of clientIdMapMock
-        Map<String, String> mockData = new HashMap<>();
-        mockData.put("user1", "clientId1");
-        mockData.put("user2", "clientId2");
-        when(clientIdMapMock.get("user1")).thenReturn("clientId1");
-        when(clientIdMapMock.get("user2")).thenReturn("clientId2");
-
-        // Assign mocked map to the clientIdService
-        clientIdService.clientIdMap = mockData;
+        ReflectionTestUtils.setField(clientIdService, "configFilePath", "src/test/resources/client-user-mapping.properties");
     }
 
     @Test
-    public void testGetClientId() {
-        // Test getClientId method
-        assertEquals("clientId1", clientIdService.getClientId("user1"));
-        assertEquals("clientId2", clientIdService.getClientId("user2"));
+    void testInit() throws IOException {
+        clientIdService.init();
+
+        Map<String, String> clientIdMap = (Map<String, String>) ReflectionTestUtils.getField(clientIdService, "clientIdMap");
+
+        assertNotNull(clientIdMap);
+        assertEquals(3, clientIdMap.size());
+        assertEquals("clientId1", clientIdMap.get("userId1"));
+        assertEquals("clientId2", clientIdMap.get("userId2"));
+        assertEquals("clientId3", clientIdMap.get("userId3"));
+    }
+
+    @Test
+    void testGetClientId() throws IOException {
+        clientIdService.init();
+        String clientId = clientIdService.getClientId("userId1");
+
+        assertEquals("clientId1", clientId);
+    }
+
+    @Test
+    void testGetClientIdNotFound() throws IOException {
+        clientIdService.init();
+        
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () -> {
+            clientIdService.getClientId("nonexistentUser");
+        });
+
+        assertEquals("Client ID not found for user: nonexistentUser", exception.getMessage());
     }
 }
