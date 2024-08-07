@@ -51,4 +51,36 @@ public class EnrichmentServiceApplicationTest {
                         .content("{\"order\": \"data\"}"))
                 .andExpect(status().isOk());
     }
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import org.junit.jupiter.api.Test;
+import org.springframework.mock.web.MockHttpServletRequest;
+import javax.servlet.http.HttpServletRequest;
+
+public class TradefeederURLTest {
+
+    @Test
+    public void testConstructTradefeederURL() {
+        // Create a mock HttpServletRequest
+        MockHttpServletRequest request = new MockHttpServletRequest();
+
+        // Set up the headers
+        String xForwardedPrefix = "/prefix";
+        String xForwardedPath = "/prefix/path/to/resource";
+        request.addHeader("x-forwarded-prefix", xForwardedPrefix);
+        request.addHeader("x-forwarded-path", xForwardedPath);
+
+        // Create an instance of the class containing the method (assume it's named TradefeederService)
+        TradefeederService tradefeederService = new TradefeederService();
+
+        // Call the method with the original URI and the mock request
+        String originalUri = "https://example.com/api/resource";
+        String expectedModifiedPath = "https://trade.com/path/to/resource";  // Expected output
+        String result = tradefeederService.constructTradefeederURL(originalUri, request);
+
+        // Assert that the result matches the expected output
+        assertEquals(expectedModifiedPath, result);
+    }
+}
+
 }
