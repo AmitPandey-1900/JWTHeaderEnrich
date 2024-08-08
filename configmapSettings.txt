@@ -59,5 +59,51 @@ Defines the properties to be loaded.
 ##Kubernetes Deployment:
 Configures the application to load the ConfigMap as environment variables and sets the CLIENT_USER_MAPPING_FILE_PATH environment variable.
 By following these steps, you can ensure that the properties file path is configurable and can be overridden, providing flexibility and ease of management.
+
+
+
+
+kubectl exec -it <pod-name> -n <namespace> -- /bin/sh -c '
+curl -X POST "https://api.tradefeedr.com/demo/v1/fx/algo/parent-orders" \
+-H "accept: */*" \
+-H "userId: userid1" \
+-H "Content-Type: application/json" \
+-d @- <<EOF
+{
+  "options": {
+    "select": [
+      "Date",
+      "ParentOrderID",
+      "ArrivalTime",
+      "NumChildEvents",
+      "NumParentEvents",
+      "Side",
+      "Symbol",
+      "Duration",
+      "TradeQuantityUSD",
+      "AlgoName",
+      "LP",
+      "ArrivalPrice",
+      "AllInPrice",
+      "ArrivalMidPerfBPS",
+      "ArrivalMidPerfNetBPS",
+      "TWAPMidPerfBPS",
+      "TWAPMidPerfNetBPS"
+    ],
+    "filter": [
+      {
+        "function": "within",
+        "var": "Date",
+        "pars": [
+          "2014-01-01",
+          "2025-12-31"
+        ]
+      }
+    ]
+  }
+}
+EOF
+'
+
   
   
