@@ -2,58 +2,62 @@ package org.example.service;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
+
+import org.springframework.http.HttpHeaders;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import javax.annotation.PostConstruct;
 import java.io.IOException;
-import java.nio.file.*;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 
 @Service
 public class JWTTokenService {
 
-    public final RestTemplate restTemplate;
-    public ObjectMapper objectMapper;
-    public final String tokenFilePath;
-    public final String authUrl;
-    public final String clientId;
-    public final String clientSecret;
-    public final String audience;
+    private static final String LOCK_FILE_PATH = "/shared/token.lock";
+    private static final String TOKEN_FILE_PATH = "/shared/token.json";
+    private static final String MY_GUID = UUID.randomUUID().toString();
 
-    private final LockService lockService;
-
-    public String token;
-    public Instant expiryTime;
+    private final RestTemplate restTemplate;
+    private final String authUrl;
+    private final String clientId;
+    private final String clientSecret;
+    private final String audience;
+    private String token;
+    private Instant expiryTime;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public JWTTokenService(RestTemplate restTemplate,
-                           @Value("${token.file.path}") String tokenFilePath,
                            @Value("${auth0.auth_url}") String authUrl,
                            @Value("${auth0.client_id}") String clientId,
                            @Value("${auth0.client_secret}") String clientSecret,
-                           @Value("${auth0.audience}") String audience,
-                           LockService lockService) {
+                           @Value("${auth0.audience}") String audience) {
         this.restTemplate = restTemplate;
-        this.tokenFilePath = tokenFilePath;
         this.authUrl = authUrl;
         this.clientId = clientId;
         this.clientSecret = clientSecret;
         this.audience = audience;
-        this.objectMapper = new ObjectMapper();
-        this.lockService = lockService;
         loadTokenFromDisk();
     }
 
-    public synchronized void loadTokenFromDisk() {
+    @PostConstruct
+    private synchronized void loadTokenFromDisk() {
         try {
-            Path path = Paths.get(tokenFilePath);
+            Path path = Paths.get(TOKEN_FILE_PATH);
             if (Files.exists(path)) {
                 JsonNode tokenNode = objectMapper.readTree(Files.newBufferedReader(path));
                 token = tokenNode.get("access_token").asText();
@@ -64,9 +68,9 @@ public class JWTTokenService {
         }
     }
 
-    public synchronized void saveTokenToDisk() {
+    private synchronized void saveTokenToDisk() {
         try {
-            Path path = Paths.get(tokenFilePath);
+            Path path = Paths.get(TOKEN_FILE_PATH);
             if (!Files.exists(path.getParent())) {
                 Files.createDirectories(path.getParent());
             }
@@ -80,58 +84,91 @@ public class JWTTokenService {
         }
     }
 
-    public void fetchTokenFromAuth0() {
-        try {
-            if (lockService.createLockFile()) {
-                lockService.deleteLockFileOnExit(); // Ensure lock file is deleted on process exit
-                if (lockService.validateLockFile()) {
-                    HttpHeaders headers = new HttpHeaders();
-                    headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+    private synchronized void fetchTokenFromAuth0() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
 
-                    Map<String, String> requestBody = new HashMap<>();
-                    requestBody.put("client_id", clientId);
-                    requestBody.put("client_secret", clientSecret);
-                    requestBody.put("audience", audience);
-                    requestBody.put("grant_type", "client_credentials");
+        Map<String, String> requestBody = new HashMap<>();
+        requestBody.put("client_id", clientId);
+        requestBody.put("client_secret", clientSecret);
+        requestBody.put("audience", audience);
+        requestBody.put("grant_type", "client_credentials");
 
-                    HttpEntity<Map<String, String>> request = new HttpEntity<>(requestBody, headers);
-                    ResponseEntity<String> response = restTemplate.exchange(authUrl, HttpMethod.POST, request, String.class);
+        HttpEntity<Map<String, String>> request = new HttpEntity<>(requestBody, headers);
+        ResponseEntity<String> response = restTemplate.exchange(authUrl, HttpMethod.POST, request, String.class);
 
-                    if (response.getStatusCode().is2xxSuccessful()) {
-                        JsonNode responseJson = objectMapper.readTree(response.getBody());
-                        token = responseJson.get("access_token").asText();
-                        long expiresIn = responseJson.get("expires_in").asLong();
-                        expiryTime = Instant.now().plusSeconds(expiresIn - 60); // Subtract 60 seconds to refresh a bit earlier
-                        saveTokenToDisk();
-                    } else {
-                        System.err.println("Failed to fetch token: " + response.getStatusCode());
-                    }
-                }
-                lockService.deleteLockFile();
-            } else {
-                Thread.sleep(5000);  // Wait for 5 seconds and retry
-                fetchTokenFromAuth0();  // Retry token fetch
+        if (response.getStatusCode().is2xxSuccessful()) {
+            try {
+                JsonNode responseJson = objectMapper.readTree(response.getBody());
+                token = responseJson.get("access_token").asText();
+                long expiresIn = responseJson.get("expires_in").asLong();
+                expiryTime = Instant.now().plusSeconds(expiresIn - 60); // Refresh a bit earlier
+                saveTokenToDisk();
+            } catch (IOException e) {
+                e.printStackTrace();
             }
-        } catch (IOException | InterruptedException e) {
-            e.printStackTrace();
-            lockService.deleteLockFile();  // Clean up lock file in case of failure
+        } else {
+            System.err.println("Failed to fetch token: " + response.getStatusCode());
         }
     }
 
     public synchronized String getToken() {
         if (token == null || Instant.now().isAfter(expiryTime)) {
-            fetchTokenFromAuth0();
-            saveTokenToDisk(); // Save token to disk after fetching new token
+            refreshToken();
         }
         return token;
     }
 
-    // Scheduled task to refresh token before expiry
     @Scheduled(fixedDelayString = "${token.refresh.delay:300000}")
     public synchronized void refreshToken() {
-        if (token == null || Instant.now().isAfter(expiryTime.minusSeconds(300))) {
-            fetchTokenFromAuth0();
-            saveTokenToDisk(); // Save token to disk after fetching new token
+        if (acquireLock()) {
+            try {
+                fetchTokenFromAuth0();
+                saveTokenToDisk();
+            } finally {
+                releaseLock();
+            }
         }
+    }
+
+    private boolean acquireLock() {
+        while (true) {
+            try {
+                Path lockFilePath = Paths.get(LOCK_FILE_PATH);
+                if (Files.notExists(lockFilePath)) {
+                    Files.write(lockFilePath, MY_GUID.getBytes(StandardCharsets.UTF_8),
+                            StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+                    return verifyLock();
+                } else {
+                    Thread.sleep(5000);
+                }
+            } catch (Exception e) {
+                handleLockFailure(e);
+            }
+        }
+    }
+
+    private boolean verifyLock() throws IOException {
+        Path lockFilePath = Paths.get(LOCK_FILE_PATH);
+        String writtenGUID = new String(Files.readAllBytes(lockFilePath), StandardCharsets.UTF_8);
+        if (MY_GUID.equals(writtenGUID)) {
+            return true;
+        } else {
+            releaseLock();
+            return false;
+        }
+    }
+
+    private void releaseLock() {
+        try {
+            Files.deleteIfExists(Paths.get(LOCK_FILE_PATH));
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void handleLockFailure(Exception e) {
+        releaseLock();
+        e.printStackTrace();
     }
 }
