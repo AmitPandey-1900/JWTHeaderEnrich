@@ -1,0 +1,53 @@
+package org.example.service;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.*;
+import java.util.UUID;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+
+@Service
+public class LockService {
+
+    private static final String MY_GUID = UUID.randomUUID().toString();
+    private final String lockFilePath;
+
+    public LockService(@Value("${lock.file.path}") String lockFilePath) {
+        this.lockFilePath = lockFilePath;
+    }
+
+    public boolean createLockFile() throws IOException {
+        Path lockFile = Paths.get(lockFilePath);
+        try {
+            Files.write(lockFile, MY_GUID.getBytes(StandardCharsets.UTF_8),
+                    StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+            return true;
+        } catch (FileAlreadyExistsException e) {
+            return false;
+        }
+    }
+
+    public boolean validateLockFile() throws IOException {
+        Path lockFile = Paths.get(lockFilePath);
+        if (Files.exists(lockFile)) {
+            String content = new String(Files.readAllBytes(lockFile), StandardCharsets.UTF_8);
+            return MY_GUID.equals(content);
+        }
+        return false;
+    }
+
+    public void deleteLockFile() {
+        try {
+            Files.deleteIfExists(Paths.get(lockFilePath));
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void deleteLockFileOnExit() {
+        Path lockFile = Paths.get(lockFilePath);
+        lockFile.toFile().deleteOnExit();
+    }
+}
