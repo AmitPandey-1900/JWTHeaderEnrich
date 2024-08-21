@@ -1,8 +1,5 @@
 package org.example.service;
 
-import io.fabric8.kubernetes.client.KubernetesClient;
-import io.fabric8.kubernetes.client.KubernetesClientBuilder;
-import io.fabric8.kubernetes.client.dsl.base.LeaderElector;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -15,10 +12,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.StandardOpenOption;
+import java.nio.file.*;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
@@ -26,37 +20,35 @@ import java.util.Map;
 @Service
 public class JWTTokenService {
 
-    private final RestTemplate restTemplate;
-    private ObjectMapper objectMapper;
-    private final String tokenFilePath;
-    private final String authUrl;
-    private final String clientId;
-    private final String clientSecret;
-    private final String audience;
+    public final RestTemplate restTemplate;
+    public ObjectMapper objectMapper;
+    public final String tokenFilePath;
+    public final String authUrl;
+    public final String clientId;
+    public final String clientSecret;
+    public final String audience;
 
-    private String token;
-    private Instant expiryTime;
+    private final LockService lockService;
 
-    private final LeaderElector leaderElector;
+    public String token;
+    public Instant expiryTime;
 
     public JWTTokenService(RestTemplate restTemplate,
                            @Value("${token.file.path}") String tokenFilePath,
                            @Value("${auth0.auth_url}") String authUrl,
                            @Value("${auth0.client_id}") String clientId,
                            @Value("${auth0.client_secret}") String clientSecret,
-                           @Value("${auth0.audience}") String audience) {
+                           @Value("${auth0.audience}") String audience,
+                           LockService lockService) {
         this.restTemplate = restTemplate;
         this.tokenFilePath = tokenFilePath;
         this.authUrl = authUrl;
         this.clientId = clientId;
         this.clientSecret = clientSecret;
         this.audience = audience;
-        objectMapper = new ObjectMapper();
+        this.objectMapper = new ObjectMapper();
+        this.lockService = lockService;
         loadTokenFromDisk();
-
-        // Initialize Kubernetes Client and LeaderElector
-        KubernetesClient kubernetesClient = new KubernetesClientBuilder().build();
-        leaderElector = new LeaderElector(kubernetesClient, "leader-election-config", "jwt-token-service-leader");
     }
 
     public synchronized void loadTokenFromDisk() {
@@ -68,7 +60,6 @@ public class JWTTokenService {
                 expiryTime = Instant.parse(tokenNode.get("expiry_time").asText());
             }
         } catch (IOException e) {
-            // Handle exception
             e.printStackTrace();
         }
     }
@@ -85,47 +76,52 @@ public class JWTTokenService {
             Files.write(path, objectMapper.writeValueAsBytes(tokenData),
                     StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
         } catch (IOException e) {
-            // Handle exception
             e.printStackTrace();
         }
     }
 
     public void fetchTokenFromAuth0() {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+        try {
+            if (lockService.createLockFile()) {
+                lockService.deleteLockFileOnExit(); // Ensure lock file is deleted on process exit
+                if (lockService.validateLockFile()) {
+                    HttpHeaders headers = new HttpHeaders();
+                    headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
 
-        Map<String, String> requestBody = new HashMap<>();
-        requestBody.put("client_id", clientId);
-        requestBody.put("client_secret", clientSecret);
+                    Map<String, String> requestBody = new HashMap<>();
+                    requestBody.put("client_id", clientId);
+                    requestBody.put("client_secret", clientSecret);
+                    requestBody.put("audience", audience);
+                    requestBody.put("grant_type", "client_credentials");
 
-        HttpEntity<Map<String, String>> request = new HttpEntity<>(requestBody, headers);
-        ResponseEntity<String> response = restTemplate.exchange(authUrl, HttpMethod.POST, request, String.class);
+                    HttpEntity<Map<String, String>> request = new HttpEntity<>(requestBody, headers);
+                    ResponseEntity<String> response = restTemplate.exchange(authUrl, HttpMethod.POST, request, String.class);
 
-        if (response.getStatusCode().is2xxSuccessful()) {
-            try {
-                JsonNode responseJson = objectMapper.readTree(response.getBody());
-                token = responseJson.get("access_token").asText();
-                long expiresIn = responseJson.get("expires_in").asLong();
-                expiryTime = Instant.now().plusSeconds(expiresIn - 60); // Subtract 60 seconds to refresh a bit earlier
-                saveTokenToDisk();
-            } catch (IOException e) {
-                // Handle exception
-                e.printStackTrace();
+                    if (response.getStatusCode().is2xxSuccessful()) {
+                        JsonNode responseJson = objectMapper.readTree(response.getBody());
+                        token = responseJson.get("access_token").asText();
+                        long expiresIn = responseJson.get("expires_in").asLong();
+                        expiryTime = Instant.now().plusSeconds(expiresIn - 60); // Subtract 60 seconds to refresh a bit earlier
+                        saveTokenToDisk();
+                    } else {
+                        System.err.println("Failed to fetch token: " + response.getStatusCode());
+                    }
+                }
+                lockService.deleteLockFile();
+            } else {
+                Thread.sleep(5000);  // Wait for 5 seconds and retry
+                fetchTokenFromAuth0();  // Retry token fetch
             }
-        } else {
-            // Handle unsuccessful response
-            System.err.println("Failed to fetch token: " + response.getStatusCode());
+        } catch (IOException | InterruptedException e) {
+            e.printStackTrace();
+            lockService.deleteLockFile();  // Clean up lock file in case of failure
         }
     }
 
     public synchronized String getToken() {
-        if (leaderElector.isLeader()) {
-            if (token == null || Instant.now().isAfter(expiryTime)) {
-                fetchTokenFromAuth0();
-                saveTokenToDisk(); // Save token to disk after fetching new token
-            }
-        } else {
-            System.out.println("Not the leader, returning cached token.");
+        if (token == null || Instant.now().isAfter(expiryTime)) {
+            fetchTokenFromAuth0();
+            saveTokenToDisk(); // Save token to disk after fetching new token
         }
         return token;
     }
@@ -133,13 +129,9 @@ public class JWTTokenService {
     // Scheduled task to refresh token before expiry
     @Scheduled(fixedDelayString = "${token.refresh.delay:300000}")
     public synchronized void refreshToken() {
-        if (leaderElector.isLeader()) {
-            if (token == null || Instant.now().isAfter(expiryTime.minusSeconds(300))) {
-                fetchTokenFromAuth0();
-                saveTokenToDisk(); // Save token to disk after fetching new token
-            }
-        } else {
-            System.out.println("Not the leader, skipping token refresh.");
+        if (token == null || Instant.now().isAfter(expiryTime.minusSeconds(300))) {
+            fetchTokenFromAuth0();
+            saveTokenToDisk(); // Save token to disk after fetching new token
         }
     }
 }
